@@ -124,6 +124,9 @@ def proc_layers_in_recipes():
         mystr = output.decode("utf-8").strip()
         lines = mystr.splitlines()
 
+    ignore_list = ["etn-pq-", "genepi-"]
+    ignore_list_regexp = r'^({})'.format("|".join(ignore_list))
+
     rec = ""
     bstart = False
     for rline in lines:
@@ -131,6 +134,8 @@ def proc_layers_in_recipes():
             if rline.endswith(":"):
                 arr = rline.split(":")
                 rec = arr[0]
+                if re.match(ignore_list_regexp, rec):
+                    rec = ""
             elif rec != "":
                 arr = rline.split()
                 if len(arr) > 1:
