@@ -53,6 +53,15 @@ def proc_vuln(pkgvuln):
     return pkgvuln
 
 
+def ignore_package(package_name):
+    ignore_list = ["etn-pq-", "genepi-"]
+    ignore_list_regexp = r'^({})'.format("|".join(ignore_list))
+    if re.match(ignore_list_regexp, package_name):
+        return True
+
+    return False
+
+
 def proc_license_manifest(liclines):
     print("- Working on recipes from license.manifest: ...")
     entries = 0
@@ -69,7 +78,8 @@ def proc_license_manifest(liclines):
             elif key == "RECIPE NAME":
                 entries += 1
                 if value not in global_values.recipes_dict.keys():
-                    global_values.recipes_dict[value] = ver
+                    if not ignore_package(value):
+                        global_values.recipes_dict[value] = ver
     if entries == 0:
         return False
     print("	Identified {} recipes from {} packages".format(len(global_values.recipes_dict), entries))
@@ -124,9 +134,6 @@ def proc_layers_in_recipes():
         mystr = output.decode("utf-8").strip()
         lines = mystr.splitlines()
 
-    ignore_list = ["etn-pq-", "genepi-"]
-    ignore_list_regexp = r'^({})'.format("|".join(ignore_list))
-
     rec = ""
     bstart = False
     for rline in lines:
@@ -134,8 +141,6 @@ def proc_layers_in_recipes():
             if rline.endswith(":"):
                 arr = rline.split(":")
                 rec = arr[0]
-                if re.match(ignore_list_regexp, rec):
-                    rec = ""
             elif rec != "":
                 arr = rline.split()
                 if len(arr) > 1:
