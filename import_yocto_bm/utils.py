@@ -1,11 +1,11 @@
-import os
 import json
+import os
 import sys
 import time
+
 import requests
 
-from import_yocto_bm import global_values
-from import_yocto_bm import config
+from import_yocto_bm import config, global_values
 
 
 def get_projver(bd, pargs):
@@ -82,9 +82,13 @@ def upload_json(bd, filename):
 def remediate_vuln(bd, vul_name, comp, pkgvuln):
 
     try:
-        print(f"        REMEDIATION: {vul_name}: {pkgvuln['package']}-{pkgvuln['version']} >> {pkgvuln['status']} ({pkgvuln['comment']})")
-        comp['remediationStatus'] = pkgvuln['status']
-        comp['comment'] = pkgvuln['comment']
+        package = pkgvuln.get('package', "")
+        version = pkgvuln.get('version', "")
+        status = pkgvuln['status']
+        comment = pkgvuln['comment']
+        print(f"        REMEDIATION: {vul_name}: {package}-{version} >> {status} ({comment})")
+        comp['remediationStatus'] = status
+        comp['comment'] = comment
         # result = hub.execute_put(comp['_meta']['href'], data=comp)
         href = comp['_meta']['href']
         # href = '/'.join(href.split('/')[3:])

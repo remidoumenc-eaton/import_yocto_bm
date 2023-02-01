@@ -418,24 +418,9 @@ def process_remediated_cves(bd, version, remediated_vulns):
         count = 0
         for comp in items:
             vuln_name = comp['vulnerabilityWithRemediation']['vulnerabilityName']
-            if comp['vulnerabilityWithRemediation']['source'] == "NVD":
-                if vuln_name in vuln_list:
-                    if utils.remediate_vuln(bd, vuln_name, comp, remediated_vulns[vuln_name]):
-                        count += 1
-            elif comp['vulnerabilityWithRemediation']['source'] == "BDSA":
-                vuln_url = f"/api/vulnerabilities/{vuln_name}"
-                vuln = bd.get_json(vuln_url)
-                # vuln = resp.json()
-                # print(json.dumps(vuln, indent=4))
-                for x in vuln['_meta']['links']:
-                    if x['rel'] == 'related-vulnerability':
-                        if x['label'] == 'NVD':
-                            cve = x['href'].split("/")[-1]
-                            if cve in vuln_list:
-                                vuln_name = f"{vuln_name} ({cve})"
-                                if utils.remediate_vuln(bd, vuln_name, comp, remediated_vulns[cve]):
-                                    count += 1
-                        break
+            if vuln_name in vuln_list:
+                if utils.remediate_vuln(bd, vuln_name, comp, remediated_vulns[vuln_name]):
+                    count += 1
 
     except Exception as e:
         print("ERROR: Unable to get components from project via API, error=" + str(e))
@@ -456,7 +441,9 @@ def proc_load_remediation_rules(remediation_files):
                     status = row[1]
                     comment = row[2] if len(row) >= 3 else ""
                     global_values.remediation_rules[vuln_id] = {"status": status,
-                                                                "comment": comment}
+                                                                "comment": comment,
+                                                                "package": "",
+                                                                "version": ""}
         except Exception as e:
             print(f"ERROR Failed to parse remediation file {remediation_file}: " + str(e))
 

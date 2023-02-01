@@ -136,6 +136,11 @@ def main():
                             cves_in_bm += 1
                     pkgvuln = {}
 
+        for vuln in global_values.remediation_rules.keys():
+            if vuln not in remediated_vulns.keys():
+                remediated_vulns[vuln] = global_values.remediation_rules[vuln]
+                remediated_vulns[vuln]['CVE'] = vuln
+
         print("      {} total patched CVEs identified".format(len(remediated_vulns)))
         if not config.args.cve_check_only:
             print(
