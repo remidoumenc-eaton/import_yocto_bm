@@ -56,6 +56,8 @@ parser.add_argument("--wizard", help="Start command line wizard (Wizard will run
 parser.add_argument("--nowizard", help="Do not use wizard (command line batch only)", action='store_true')
 parser.add_argument("--remediation_file", help="File containing custom remediation rules", action='append',
                     default=[])
+parser.add_argument("--ignore_layer_list", help="Json File containing a list of layers to be skipped from report",
+                    default=None)
 
 args = parser.parse_args()
 

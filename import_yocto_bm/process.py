@@ -5,7 +5,7 @@ import re
 import subprocess
 import sys
 import uuid
-
+import json
 import git
 
 from import_yocto_bm import config, global_values, utils
@@ -408,6 +408,8 @@ def proc_yocto_project(manfile):
     }
 
     bdio = [bdio_header, bdio_project, global_values.bdio_comps_layers, global_values.bdio_comps_recipes]
+    # Once all the sorting is done. remove unwanted receipes from the report.
+    bdio = post_process(bdio)
     if not utils.write_bdio(bdio):
         sys.exit(3)
 
@@ -496,3 +498,33 @@ def get_vulns(bd, version):
         print("ERROR: Unable to get components from project via API\n" + str(e))
         return None
     return alldata
+
+
+def post_process(bdio_data):
+    """Post Process the data"""
+    if config.args.ignore_layer_list is None:
+        return bdio_data
+    try:
+        f = open(config.args.ignore_layer_list)
+        layer_skip_list = json.load(f)
+    except Exception as e:
+        print(f"Ignore Layer json file not found at location {config.args.ignore_layer_list}")
+        print(f"Error {e}")
+        return bdio_data
+    print(f"Ignoring own baked recipes {layer_skip_list}.....")
+    recipes_data = []
+    layer_data = []
+    for recipe in bdio_data[2]:
+        if recipe['externalIdentifier']['externalId'] in layer_skip_list:
+            continue
+        recipes_data.append(recipe)
+
+    for layer in bdio_data[3]:
+        if layer['externalIdentifier']['externalIdMetaData']['prefix'] in layer_skip_list:
+            continue
+        layer_data.append(layer)
+
+    bdio_data[2] = recipes_data
+    bdio_data[3] = layer_data
+
+    return bdio_data

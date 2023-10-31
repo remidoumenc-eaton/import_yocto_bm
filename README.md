@@ -176,6 +176,8 @@ The `import_yocto_bm` parameters for command line usage are shown below:
                 Do not start command line wizard even if config incomplete (batch mode)
       --remediation_file
                 Load file containing custom remediation rules
+      --ignore_layer_list
+                Json File containing a list of layers which will be ignored from the report
 
 The script will use the invocation folder as the Yocto build folder (e.g. yocto_zeus/poky/build) by default (if there is a `build` sub-folder then it will be used instead). The `--yocto_folder` option can be used to specify the Yocto build folder as opposed to the invocation folder.
 
@@ -194,6 +196,8 @@ The most recent cve\_check log file `build/tmp/deploy/images/<arch>/<image>-<tar
 Use the `--cve_check_only` option to skip the scanning of the project and creation of a project, only looking for a CVE check output log file to identify and patching matched CVEs within an existing Black Duck project (which must have been created previously).
 
 Use the `--no_cve_check` option to skip the patched CVE identification and update of CVE status in the Black Duck project. 
+
+Use the `--ignore_layer_list` option to ignore the unwanted layers from the Black Duck project. (see IGNORE UNWANTED LAYERS below).
 
 # PRECONFIGURATION
 
@@ -247,6 +251,12 @@ Example: ```CVE-2022-45934,IGNORED,linux: CONFIG_BT is not set```
 
 The valid remediation status are: `IGNORED`, `MITIGATED`, `PATCHED`, `REMEDIATION_COMPLETE`.
 The comment is used as remediation message.
+
+# IGNORE UNWANTED LAYERS
+
+It is possible to skip the unwanted layers from the bdio report by passing a json filepath as with this option --ignore_layer_list.
+The contents of the json file should be a list of layers like this
+``` ["meta-x","meta-y", "meta-z"] ```
 
 # EXAMPLE USAGE
 
