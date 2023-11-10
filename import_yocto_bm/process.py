@@ -131,6 +131,7 @@ def proc_layers_in_recipes():
         else:
             output = subprocess.check_output(['bash', '-c', 'source ' + global_values.oefile +
                                               ' && bitbake-layers show-recipes'], stderr=subprocess.STDOUT)
+
         mystr = output.decode("utf-8").strip()
         lines = mystr.splitlines()
 
@@ -406,10 +407,15 @@ def proc_yocto_project(manfile):
         },
         "relationship": global_values.bdio_proj_rel_list
     }
+    try:
+        skip_regex_list = config.args.ignore_layer_regex.split(",")
+    except Exception as e:
+        print(f"Unable to extract the regex fields from {config.args.ignore_layer_regex}")
+        exit(2)
 
     bdio = [bdio_header, bdio_project, global_values.bdio_comps_layers, global_values.bdio_comps_recipes]
-    # Once all the sorting is done. remove unwanted receipes from the report.
-    bdio = post_process(bdio)
+    # Once all the sorting is done. remove unwanted recipes from the report.
+    bdio = post_process(bdio, global_values.replace_recipes_dict, skip_regex_list)
     if not utils.write_bdio(bdio):
         sys.exit(3)
 
@@ -500,29 +506,65 @@ def get_vulns(bd, version):
     return alldata
 
 
-def post_process(bdio_data):
-    """Post Process the data"""
-    if config.args.ignore_layer_list is None:
-        return bdio_data
-    try:
-        f = open(config.args.ignore_layer_list)
-        layer_skip_list = json.load(f)
-    except Exception as e:
-        print(f"Ignore Layer json file not found at location {config.args.ignore_layer_list}")
-        print(f"Error {e}")
-        return bdio_data
-    print(f"Ignoring own baked recipes {layer_skip_list}.....")
-    recipes_data = []
-    layer_data = []
-    for recipe in bdio_data[2]:
-        if recipe['externalIdentifier']['externalId'] in layer_skip_list:
-            continue
-        recipes_data.append(recipe)
+def get_regex_for_layer(layer_name):
+    pattern = r'^([^/]+)/([^/]+)/([^/]+)$'
+    layer_match = re.match(pattern, layer_name)
+    if not layer_match:
+        return False
+    return layer_match.groups()
 
+
+def post_process(bdio_data, replace_data, layer_skip_regex_list):
+    """
+    Post Process the data
+    bdio_data : The final data generated after scan. Data inside the dictionary will be overriden
+    replace_file_path : The replacement file data, to check if any version is updated.
+    """
+    if layer_skip_regex_list is None:
+        return bdio_data
+    recipes_data = []  # List of  recipes which will be push to bd
+    layer_data = []  # List of layers which will be push to bd
+    skip_layers = []  # List of layers which will ignored from report
+
+    print("=============== SKIPPING own Recipes And CHECKING replace versions ===============")
+    print(f"SKIP REGEX : {layer_skip_regex_list}")
     for layer in bdio_data[3]:
-        if layer['externalIdentifier']['externalIdMetaData']['prefix'] in layer_skip_list:
+        skip_flag = False
+        recipe_info = get_regex_for_layer(layer['externalIdentifier']['externalId'])
+        if not recipe_info:
+            print(f"Regex not matching for {layer['externalIdentifier']['externalId']}")
+            continue
+        for skip_str in layer_skip_regex_list:
+            if skip_str in recipe_info[1]:
+                print(f"Recipe {recipe_info} skipped due to regex {skip_str} found in name.")
+                skip_flag = True
+                if recipe_info[0] not in skip_layers:
+                    skip_layers.append(recipe_info[0])
+                break
+        if skip_flag:
             continue
         layer_data.append(layer)
+        # Check version in replace file
+        for org_recipe in replace_data.values():
+            # Recipe to be replaced mention in replace file
+            recipe_from_rep_tuple = get_regex_for_layer(org_recipe)
+            if not recipe_from_rep_tuple:
+                continue
+            if recipe_info[1] != recipe_from_rep_tuple[1]:
+                continue
+            # Check version
+            print(f"VERSION CHECK: Expected {recipe_info} | Actual : {recipe_from_rep_tuple}")
+            assert recipe_info[2] == recipe_from_rep_tuple[2], "ERROR : Version incorrect."
+            # Check Layer
+            assert recipe_info[0] == recipe_from_rep_tuple[0], f"ERROR : Layer name data incorrect."
+
+    print("=============== SKIPPING own layers ===============")
+    print(f"SKIP LIST : {skip_layers}")
+    for recipe in bdio_data[2]:
+        if recipe['externalIdentifier']['externalId'] in skip_layers:
+            print(f"{recipe['externalIdentifier']['externalId']} Skipped")
+            continue
+        recipes_data.append(recipe)
 
     bdio_data[2] = recipes_data
     bdio_data[3] = layer_data

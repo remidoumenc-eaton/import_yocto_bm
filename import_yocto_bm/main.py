@@ -56,6 +56,9 @@ def main():
         process.proc_yocto_project(config.args.manifest)
 
         if not global_values.offline:
+            print(f"\nDeleting version {config.args.version} from "
+                  f"project {config.args.project} if already exists before uploading the results.")
+            utils.delete_project_version(bd)
             print("\nUploading scan to Black Duck server ...")
             if utils.upload_json(bd, config.args.output_json):
                 print("Scan file uploaded successfully\nBlack Duck project '{}/{}' created.".format(
