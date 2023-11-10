@@ -407,15 +407,19 @@ def proc_yocto_project(manfile):
         },
         "relationship": global_values.bdio_proj_rel_list
     }
-    try:
-        skip_regex_list = config.args.ignore_layer_regex.split(",")
-    except Exception as e:
-        print(f"Unable to extract the regex fields from {config.args.ignore_layer_regex}")
-        exit(2)
 
     bdio = [bdio_header, bdio_project, global_values.bdio_comps_layers, global_values.bdio_comps_recipes]
     # Once all the sorting is done. remove unwanted recipes from the report.
-    bdio = post_process(bdio, global_values.replace_recipes_dict, skip_regex_list)
+    if config.args.ignore_layer_regex is not None:
+        skip_regex_list = []
+        try:
+            for item in config.args.ignore_layer_regex.split(","):
+                if item != '':
+                    skip_regex_list.append(item)
+            bdio = post_process(bdio, global_values.replace_recipes_dict, skip_regex_list)
+        except Exception as e:
+            print(f"Unable to extract the regex fields from {config.args.ignore_layer_regex}.Error : {e}")
+            exit(2)
     if not utils.write_bdio(bdio):
         sys.exit(3)
 
@@ -520,6 +524,7 @@ def post_process(bdio_data, replace_data, layer_skip_regex_list):
     bdio_data : The final data generated after scan. Data inside the dictionary will be overriden
     replace_file_path : The replacement file data, to check if any version is updated.
     """
+    print(f"SKIP REGEX : {layer_skip_regex_list}")
     if layer_skip_regex_list is None:
         return bdio_data
     recipes_data = []  # List of  recipes which will be push to bd
@@ -527,7 +532,6 @@ def post_process(bdio_data, replace_data, layer_skip_regex_list):
     skip_layers = []  # List of layers which will ignored from report
 
     print("=============== SKIPPING own Recipes And CHECKING replace versions ===============")
-    print(f"SKIP REGEX : {layer_skip_regex_list}")
     for layer in bdio_data[3]:
         skip_flag = False
         recipe_info = get_regex_for_layer(layer['externalIdentifier']['externalId'])
