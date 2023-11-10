@@ -197,7 +197,7 @@ Use the `--cve_check_only` option to skip the scanning of the project and creati
 
 Use the `--no_cve_check` option to skip the patched CVE identification and update of CVE status in the Black Duck project. 
 
-Use the `--ignore_layer_list` option to ignore the unwanted layers from the Black Duck project. (see IGNORE UNWANTED LAYERS below).
+Use the `--ignore_layer_regex` option to ignore the unwanted recipes from the Black Duck project. (see IGNORE UNWANTED LAYERS below).
 
 # PRECONFIGURATION
 
@@ -254,9 +254,9 @@ The comment is used as remediation message.
 
 # IGNORE UNWANTED LAYERS
 
-It is possible to skip the unwanted layers from the bdio report by passing a json filepath as with this option --ignore_layer_list.
-The contents of the json file should be a list of layers like this
-``` ["meta-x","meta-y", "meta-z"] ```
+It is possible to skip the unwanted recipes from the bdio report by passing a json filepath as with this option --ignore_layer_regex.
+The contents should be a comma separated values something that is unique specific to that recipe name. 
+``` e.g for meta/base-files/3.0.14 and meta/i2c-tools/4.3-r0 you can pass base-,i2c-```
 
 # EXAMPLE USAGE
 
