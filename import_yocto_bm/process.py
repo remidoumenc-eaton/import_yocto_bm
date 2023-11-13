@@ -410,15 +410,10 @@ def proc_yocto_project(manfile):
 
     bdio = [bdio_header, bdio_project, global_values.bdio_comps_layers, global_values.bdio_comps_recipes]
     # Once all the sorting is done. remove unwanted recipes from the report.
-    if config.args.ignore_layer_regex is not None:
-        skip_regex_list = []
+    if config.args.ignore_recipe:
         try:
-            for item in config.args.ignore_layer_regex.split(","):
-                if item != '':
-                    skip_regex_list.append(item)
-            bdio = post_process(bdio, global_values.replace_recipes_dict, skip_regex_list)
+            bdio = post_process(bdio, global_values.replace_recipes_dict, config.args.ignore_recipe)
         except Exception as e:
-            print(f"Unable to extract the regex fields from {config.args.ignore_layer_regex}.Error : {e}")
             exit(2)
     if not utils.write_bdio(bdio):
         sys.exit(3)
@@ -518,15 +513,16 @@ def get_regex_for_layer(layer_name):
     return layer_match.groups()
 
 
-def post_process(bdio_data, replace_data, layer_skip_regex_list):
+def post_process(bdio_data, replace_data, recipe_skip_regex_list):
     """
-    Post Process the data
+    This function updates the final bdio data which will be pushed to server.
+    - Checks the replace file contents to check  for updated versions in skip list
+    - remove the recipes which were passed as an argument in recipe_skip_regex_list
     bdio_data : The final data generated after scan. Data inside the dictionary will be overriden
-    replace_file_path : The replacement file data, to check if any version is updated.
+    recipe_skip_regex_list : list of recipes to be skipped before uploading the results
+    replace_data : list of recipes to be replaced with the specified version in replace file.
     """
-    print(f"SKIP REGEX : {layer_skip_regex_list}")
-    if layer_skip_regex_list is None:
-        return bdio_data
+    print(f"SKIP REGEX : {recipe_skip_regex_list}")
     recipes_data = []  # List of  recipes which will be push to bd
     layer_data = []  # List of layers which will be push to bd
     skip_layers = []  # List of layers which will ignored from report
@@ -538,13 +534,14 @@ def post_process(bdio_data, replace_data, layer_skip_regex_list):
         if not recipe_info:
             print(f"Regex not matching for {layer['externalIdentifier']['externalId']}")
             continue
-        for skip_str in layer_skip_regex_list:
-            if skip_str in recipe_info[1]:
-                print(f"Recipe {recipe_info} skipped due to regex {skip_str} found in name.")
-                skip_flag = True
-                if recipe_info[0] not in skip_layers:
-                    skip_layers.append(recipe_info[0])
-                break
+        if recipe_skip_regex_list:
+            for skip_str in recipe_skip_regex_list:
+                if skip_str in recipe_info[1]:
+                    print(f"Recipe {recipe_info} skipped due to regex {skip_str} found in name.")
+                    skip_flag = True
+                    if recipe_info[0] not in skip_layers:
+                        skip_layers.append(recipe_info[0])
+                    break
         if skip_flag:
             continue
         layer_data.append(layer)
@@ -558,9 +555,9 @@ def post_process(bdio_data, replace_data, layer_skip_regex_list):
                 continue
             # Check version
             print(f"VERSION CHECK: Expected {recipe_info} | Actual : {recipe_from_rep_tuple}")
-            assert recipe_info[2] == recipe_from_rep_tuple[2], "ERROR : Version incorrect."
+            assert recipe_info[2] == recipe_from_rep_tuple[2], f"ERROR : Version incorrect. Expected {recipe_info} | Actual : {recipe_from_rep_tuple}"
             # Check Layer
-            assert recipe_info[0] == recipe_from_rep_tuple[0], f"ERROR : Layer name data incorrect."
+            assert recipe_info[0] == recipe_from_rep_tuple[0], f"ERROR : Layer name data incorrect. Expected {recipe_info} | Actual : {recipe_from_rep_tuple}"
 
     print("=============== SKIPPING own layers ===============")
     print(f"SKIP LIST : {skip_layers}")

@@ -176,8 +176,8 @@ The `import_yocto_bm` parameters for command line usage are shown below:
                 Do not start command line wizard even if config incomplete (batch mode)
       --remediation_file
                 Load file containing custom remediation rules
-      --ignore_layer_list
-                Json File containing a list of layers which will be ignored from the report
+      --ignore_recipe
+                The name,regex of recipe which you want to skip. e.g 'etn-'
 
 The script will use the invocation folder as the Yocto build folder (e.g. yocto_zeus/poky/build) by default (if there is a `build` sub-folder then it will be used instead). The `--yocto_folder` option can be used to specify the Yocto build folder as opposed to the invocation folder.
 
@@ -252,11 +252,11 @@ Example: ```CVE-2022-45934,IGNORED,linux: CONFIG_BT is not set```
 The valid remediation status are: `IGNORED`, `MITIGATED`, `PATCHED`, `REMEDIATION_COMPLETE`.
 The comment is used as remediation message.
 
-# IGNORE UNWANTED LAYERS
+# IGNORE UNWANTED RECIPES
 
 It is possible to skip the unwanted recipes from the bdio report by passing a json filepath as with this option --ignore_layer_regex.
 The contents should be a comma separated values something that is unique specific to that recipe name. 
-``` e.g for meta/base-files/3.0.14 and meta/i2c-tools/4.3-r0 you can pass base-,i2c-```
+```  --ignore_recipe meta/base-files/3.0.14 --ignore_recipe genepi-```
 
 # EXAMPLE USAGE
 
