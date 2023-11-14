@@ -5,7 +5,7 @@ import re
 import subprocess
 import sys
 import uuid
-
+import json
 import git
 
 from import_yocto_bm import config, global_values, utils
@@ -131,6 +131,7 @@ def proc_layers_in_recipes():
         else:
             output = subprocess.check_output(['bash', '-c', 'source ' + global_values.oefile +
                                               ' && bitbake-layers show-recipes'], stderr=subprocess.STDOUT)
+
         mystr = output.decode("utf-8").strip()
         lines = mystr.splitlines()
 
@@ -408,6 +409,12 @@ def proc_yocto_project(manfile):
     }
 
     bdio = [bdio_header, bdio_project, global_values.bdio_comps_layers, global_values.bdio_comps_recipes]
+    # Once all the sorting is done. remove unwanted recipes from the report.
+    if config.args.ignore_recipe:
+        try:
+            bdio = post_process(bdio, global_values.replace_recipes_dict, config.args.ignore_recipe)
+        except Exception as e:
+            exit(2)
     if not utils.write_bdio(bdio):
         sys.exit(3)
 
@@ -496,3 +503,71 @@ def get_vulns(bd, version):
         print("ERROR: Unable to get components from project via API\n" + str(e))
         return None
     return alldata
+
+
+def get_regex_for_layer(layer_name):
+    pattern = r'^([^/]+)/([^/]+)/([^/]+)$'
+    layer_match = re.match(pattern, layer_name)
+    if not layer_match:
+        return False
+    return layer_match.groups()
+
+
+def post_process(bdio_data, replace_data, recipe_skip_regex_list):
+    """
+    This function updates the final bdio data which will be pushed to server.
+    - Checks the replace file contents to check  for updated versions in skip list
+    - remove the recipes which were passed as an argument in recipe_skip_regex_list
+    bdio_data : The final data generated after scan. Data inside the dictionary will be overriden
+    recipe_skip_regex_list : list of recipes to be skipped before uploading the results
+    replace_data : list of recipes to be replaced with the specified version in replace file.
+    """
+    print(f"SKIP REGEX : {recipe_skip_regex_list}")
+    recipes_data = []  # List of  recipes which will be push to bd
+    layer_data = []  # List of layers which will be push to bd
+    skip_layers = []  # List of layers which will ignored from report
+
+    print("=============== SKIPPING own Recipes And CHECKING replace versions ===============")
+    for layer in bdio_data[3]:
+        skip_flag = False
+        recipe_info = get_regex_for_layer(layer['externalIdentifier']['externalId'])
+        if not recipe_info:
+            print(f"Regex not matching for {layer['externalIdentifier']['externalId']}")
+            continue
+        if recipe_skip_regex_list:
+            for skip_str in recipe_skip_regex_list:
+                if skip_str in recipe_info[1]:
+                    print(f"Recipe {recipe_info} skipped due to regex {skip_str} found in name.")
+                    skip_flag = True
+                    if recipe_info[0] not in skip_layers:
+                        skip_layers.append(recipe_info[0])
+                    break
+        if skip_flag:
+            continue
+        layer_data.append(layer)
+        # Check version in replace file
+        for org_recipe in replace_data.values():
+            # Recipe to be replaced mention in replace file
+            recipe_from_rep_tuple = get_regex_for_layer(org_recipe)
+            if not recipe_from_rep_tuple:
+                continue
+            if recipe_info[1] != recipe_from_rep_tuple[1]:
+                continue
+            # Check version
+            print(f"VERSION CHECK: Expected {recipe_info} | Actual : {recipe_from_rep_tuple}")
+            assert recipe_info[2] == recipe_from_rep_tuple[2], f"ERROR : Version incorrect. Expected {recipe_info} | Actual : {recipe_from_rep_tuple}"
+            # Check Layer
+            assert recipe_info[0] == recipe_from_rep_tuple[0], f"ERROR : Layer name data incorrect. Expected {recipe_info} | Actual : {recipe_from_rep_tuple}"
+
+    print("=============== SKIPPING own layers ===============")
+    print(f"SKIP LIST : {skip_layers}")
+    for recipe in bdio_data[2]:
+        if recipe['externalIdentifier']['externalId'] in skip_layers:
+            print(f"{recipe['externalIdentifier']['externalId']} Skipped")
+            continue
+        recipes_data.append(recipe)
+
+    bdio_data[2] = recipes_data
+    bdio_data[3] = layer_data
+
+    return bdio_data

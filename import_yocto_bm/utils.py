@@ -29,6 +29,31 @@ def get_projver(bd, pargs):
     return None, None
 
 
+def delete_project_version(bd):
+    """
+    Delete the project version created.
+    :return: None
+    """
+    proj, ver = get_projver(bd, config.args)
+    if ver is None:
+        print("No matching version found.")
+        return
+    url = ver["_meta"]["href"]
+    headers = {
+        'X-CSRF-TOKEN': bd.session.auth.csrf_token,
+        'Authorization': 'Bearer ' + bd.session.auth.bearer_token,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+    }
+    try:
+        response = requests.delete(url, headers=headers, verify=global_values.verify)
+    except Exception as e:
+        print(f"Error occurred while deleting the version {ver['versionName']}. {e}")
+        raise e
+    if response.status_code == 204:
+        print(f"Version {ver['versionName']} Deleted Successfully")
+
+
 def write_bdio(bdio):
     if config.args.output_json != "":
         try:
@@ -55,7 +80,6 @@ def write_bdio(bdio):
 
 
 def upload_json(bd, filename):
-
     url = bd.base_url + "/api/scan/data/?mode=replace"
     headers = {
         'X-CSRF-TOKEN': bd.session.auth.csrf_token,

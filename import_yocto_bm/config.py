@@ -56,6 +56,8 @@ parser.add_argument("--wizard", help="Start command line wizard (Wizard will run
 parser.add_argument("--nowizard", help="Do not use wizard (command line batch only)", action='store_true')
 parser.add_argument("--remediation_file", help="File containing custom remediation rules", action='append',
                     default=[])
+parser.add_argument("--ignore_recipe", help="The name,regex of recipe which you want to skip. e.g 'etn-'",
+                    action='append', default=[])
 
 args = parser.parse_args()
 
