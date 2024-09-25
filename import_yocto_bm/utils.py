@@ -1,11 +1,11 @@
-import os
 import json
+import os
 import sys
 import time
+
 import requests
 
-from import_yocto_bm import global_values
-from import_yocto_bm import config
+from import_yocto_bm import config, global_values
 
 
 def get_projver(bd, pargs):
@@ -27,6 +27,31 @@ def get_projver(bd, pargs):
                 return proj, ver
     print("INFO: Version '{}' does not exist in project '{}' yet".format(pargs.project, pargs.version))
     return None, None
+
+
+def delete_project_version(bd):
+    """
+    Delete the project version created.
+    :return: None
+    """
+    proj, ver = get_projver(bd, config.args)
+    if ver is None:
+        print("No matching version found.")
+        return
+    url = ver["_meta"]["href"]
+    headers = {
+        'X-CSRF-TOKEN': bd.session.auth.csrf_token,
+        'Authorization': 'Bearer ' + bd.session.auth.bearer_token,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+    }
+    try:
+        response = requests.delete(url, headers=headers, verify=global_values.verify)
+    except Exception as e:
+        print(f"Error occurred while deleting the version {ver['versionName']}. {e}")
+        raise e
+    if response.status_code == 204:
+        print(f"Version {ver['versionName']} Deleted Successfully")
 
 
 def write_bdio(bdio):
@@ -55,7 +80,6 @@ def write_bdio(bdio):
 
 
 def upload_json(bd, filename):
-
     url = bd.base_url + "/api/scan/data/?mode=replace"
     headers = {
         'X-CSRF-TOKEN': bd.session.auth.csrf_token,
@@ -79,15 +103,16 @@ def upload_json(bd, filename):
         return False
 
 
-def patch_vuln(bd, comp):
-    status = "PATCHED"
-    comment = "Patched by bitbake recipe"
+def remediate_vuln(bd, vul_name, comp, pkgvuln):
 
     try:
-        # vuln_name = comp['vulnerabilityWithRemediation']['vulnerabilityName']
-
+        package = pkgvuln.get('package', "")
+        version = pkgvuln.get('version', "")
+        status = pkgvuln['status']
+        comment = pkgvuln['comment']
+        print(f"        REMEDIATION: {vul_name}: {package}-{version} >> {status} ({comment})")
         comp['remediationStatus'] = status
-        comp['remediationComment'] = comment
+        comp['comment'] = comment
         # result = hub.execute_put(comp['_meta']['href'], data=comp)
         href = comp['_meta']['href']
         # href = '/'.join(href.split('/')[3:])

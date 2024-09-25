@@ -1,13 +1,65 @@
-import os
-import uuid
+import csv
 import datetime
-import sys
+import os
 import re
 import subprocess
+import sys
+import uuid
+import json
+import git
 
-from import_yocto_bm import global_values
-from import_yocto_bm import utils
-from import_yocto_bm import config
+from import_yocto_bm import config, global_values, utils
+
+
+def get_package_reference(pkgvuln):
+    reference = ""
+    try:
+        package_name = pkgvuln['package']
+        package_version = pkgvuln['version']
+        reference = f"{package_name}_{package_version}"
+
+        layer_name = global_values.recipe_layer_dict[package_name]
+        layer_reference = global_values.layers_info_dict[layer_name]["reference"]
+        reference += f" >> {layer_reference}"
+    except Exception as e:
+        #print("ERROR: Failed to build component reference information: " + str(e))
+        pass
+
+    return reference
+
+
+def proc_vuln(pkgvuln):
+    if pkgvuln['CVE'] in global_values.remediation_rules.keys():
+        remediation_rule = global_values.remediation_rules[pkgvuln['CVE']]
+        pkgvuln['status'] = remediation_rule['status']
+        pkgvuln['comment'] = remediation_rule['comment']
+    else:
+        status_lut = {"Patched": "PATCHED",
+                      "Whitelisted": "REMEDIATION_COMPLETE"}
+        comment_lut = {"Patched": "Patched by bitbake recipe: ",
+                       "Whitelisted": "Marked as whitelisted by bitbake recipe: "}
+        pkgvuln['comment'] = comment_lut.get(pkgvuln['status'], None)
+        if pkgvuln['comment']:
+            pkgvuln['comment'] += get_package_reference(pkgvuln)
+        pkgvuln['status'] = status_lut.get(pkgvuln['status'], None)
+
+    if pkgvuln['status']:
+        pkgvuln['status'] = pkgvuln['status'].upper()
+
+    # Filter remediation if status is not one of those
+    if pkgvuln['status'] not in ["IGNORED", "MITIGATED", "PATCHED", "REMEDIATION_COMPLETE"]:
+        return None
+
+    return pkgvuln
+
+
+def ignore_package(package_name):
+    ignore_list = ["etn-pq-", "genepi-"]
+    ignore_list_regexp = r'^({})'.format("|".join(ignore_list))
+    if re.match(ignore_list_regexp, package_name):
+        return True
+
+    return False
 
 
 def proc_license_manifest(liclines):
@@ -26,11 +78,42 @@ def proc_license_manifest(liclines):
             elif key == "RECIPE NAME":
                 entries += 1
                 if value not in global_values.recipes_dict.keys():
-                    global_values.recipes_dict[value] = ver
+                    if not ignore_package(value):
+                        global_values.recipes_dict[value] = ver
     if entries == 0:
         return False
     print("	Identified {} recipes from {} packages".format(len(global_values.recipes_dict), entries))
     return True
+
+
+def proc_layers_information():
+    print("- Identifying layers information ...")
+    if global_values.oefile == '':
+        output = subprocess.check_output(['bitbake-layers', 'show-layers'], stderr=subprocess.STDOUT)
+    else:
+        output = subprocess.check_output(['bash', '-c', 'source ' + global_values.oefile +
+                                            ' && bitbake-layers show-layers'], stderr=subprocess.STDOUT)
+    # Sometimes bitbake server fails to reconnect
+    bb_lock_path = os.path.join(config.args.yocto_build_folder, "bitbake.lock")
+    subprocess.run(["rm", "-f", bb_lock_path])
+
+    striped_output = output.decode("utf-8").strip()
+    layer_info_list = re.findall(r'([\w-]+)\s+([\w/-]+)\s+(\d+)', striped_output, re.X | re.M)
+    for layer_info in layer_info_list:
+        if len(layer_info) != 3:
+            raise Exception("ERROR: failed to parse layer information")
+
+        layer_name = layer_info[0]
+        layer_path = layer_info[1]
+        layer_priority = layer_info[2]
+        g = git.cmd.Git(layer_path)
+        layer_remote_url = g.execute(['git', 'config', '--get', 'remote.origin.url'])
+        layer_commit = g.execute(['git', 'rev-parse', 'HEAD'])
+        layer_git_reference = f"{layer_remote_url}@{layer_commit}"
+
+        global_values.layers_info_dict[layer_name] = {"path": layer_path,
+                                                      "priority": layer_priority,
+                                                      "reference": layer_git_reference}
 
 
 def proc_layers_in_recipes():
@@ -48,6 +131,7 @@ def proc_layers_in_recipes():
         else:
             output = subprocess.check_output(['bash', '-c', 'source ' + global_values.oefile +
                                               ' && bitbake-layers show-recipes'], stderr=subprocess.STDOUT)
+
         mystr = output.decode("utf-8").strip()
         lines = mystr.splitlines()
 
@@ -82,7 +166,7 @@ def proc_layers_in_recipes():
                                 global_values.recipe_layer_dict[rec] = layer
                                 if layer not in global_values.layers_list:
                                     global_values.layers_list.append(layer)
-                                    
+
                 rec = ""
         elif rline.endswith(": ==="):
             bstart = True
@@ -268,6 +352,7 @@ def proc_yocto_project(manfile):
     print("\nProcessing Bitbake project:")
     if not proc_license_manifest(liclines):
         sys.exit(3)
+    proc_layers_information()
     proc_layers_in_recipes()
     proc_recipe_revisions()
     if not config.args.no_kb_check:
@@ -324,49 +409,55 @@ def proc_yocto_project(manfile):
     }
 
     bdio = [bdio_header, bdio_project, global_values.bdio_comps_layers, global_values.bdio_comps_recipes]
+    # Once all the sorting is done. remove unwanted recipes from the report.
+    if config.args.ignore_recipe:
+        try:
+            bdio = post_process(bdio, global_values.replace_recipes_dict, config.args.ignore_recipe)
+        except Exception as e:
+            exit(2)
     if not utils.write_bdio(bdio):
         sys.exit(3)
 
 
-def process_patched_cves(bd, version, vuln_list):
+def process_remediated_cves(bd, version, remediated_vulns):
 
+    vuln_list = remediated_vulns.keys()
     try:
         # headers = {'Accept': 'application/vnd.blackducksoftware.bill-of-materials-6+json'}
         # resp = bd.get_json(version['_meta']['href'] + '/vulnerable-bom-components?limit=5000', headers=headers)
         items = get_vulns(bd, version)
 
         count = 0
-
         for comp in items:
-            if comp['vulnerabilityWithRemediation']['source'] == "NVD":
-                if comp['vulnerabilityWithRemediation']['vulnerabilityName'] in vuln_list:
-                    if utils.patch_vuln(bd, comp):
-                        print("		Patched {}".format(comp['vulnerabilityWithRemediation']['vulnerabilityName']))
-                        count += 1
-            elif comp['vulnerabilityWithRemediation']['source'] == "BDSA":
-                vuln_url = "/api/vulnerabilities/" + comp['vulnerabilityWithRemediation'][
-                    'vulnerabilityName']
-                # custom_headers = {'Accept': 'application/vnd.blackducksoftware.vulnerability-4+json'}
-                # resp = hub.execute_get(vuln_url, custom_headers=custom_headers)
-                vuln = bd.get_json(vuln_url)
-                # vuln = resp.json()
-                # print(json.dumps(vuln, indent=4))
-                for x in vuln['_meta']['links']:
-                    if x['rel'] == 'related-vulnerability':
-                        if x['label'] == 'NVD':
-                            cve = x['href'].split("/")[-1]
-                            if cve in vuln_list:
-                                if utils.patch_vuln(bd, comp):
-                                    print("		Patched " + vuln['name'] + ": " + cve)
-                                    count += 1
-                        break
+            vuln_name = comp['vulnerabilityWithRemediation']['vulnerabilityName']
+            if vuln_name in vuln_list:
+                if utils.remediate_vuln(bd, vuln_name, comp, remediated_vulns[vuln_name]):
+                    count += 1
 
     except Exception as e:
-        print("ERROR: Unable to get components from project via API\n" + str(e))
+        print("ERROR: Unable to get components from project via API, error=" + str(e))
         return False
 
     print("- {} CVEs marked as patched in project '{}/{}'".format(count, config.args.project, config.args.version))
     return True
+
+
+def proc_load_remediation_rules(remediation_files):
+    for remediation_file in remediation_files:
+        print(f"- Load remediation file: {remediation_file}")
+        try:
+            with open(remediation_file, 'r') as csvfile:
+                csvreader = csv.reader(csvfile, delimiter=',', quotechar='|')
+                for row in csvreader:
+                    vuln_id = row[0]
+                    status = row[1]
+                    comment = row[2] if len(row) >= 3 else ""
+                    global_values.remediation_rules[vuln_id] = {"status": status,
+                                                                "comment": comment,
+                                                                "package": "",
+                                                                "version": ""}
+        except Exception as e:
+            print(f"ERROR Failed to parse remediation file {remediation_file}: " + str(e))
 
 
 def proc_replacefile():
@@ -412,3 +503,71 @@ def get_vulns(bd, version):
         print("ERROR: Unable to get components from project via API\n" + str(e))
         return None
     return alldata
+
+
+def get_regex_for_layer(layer_name):
+    pattern = r'^([^/]+)/([^/]+)/([^/]+)$'
+    layer_match = re.match(pattern, layer_name)
+    if not layer_match:
+        return False
+    return layer_match.groups()
+
+
+def post_process(bdio_data, replace_data, recipe_skip_regex_list):
+    """
+    This function updates the final bdio data which will be pushed to server.
+    - Checks the replace file contents to check  for updated versions in skip list
+    - remove the recipes which were passed as an argument in recipe_skip_regex_list
+    bdio_data : The final data generated after scan. Data inside the dictionary will be overriden
+    recipe_skip_regex_list : list of recipes to be skipped before uploading the results
+    replace_data : list of recipes to be replaced with the specified version in replace file.
+    """
+    print(f"SKIP REGEX : {recipe_skip_regex_list}")
+    recipes_data = []  # List of  recipes which will be push to bd
+    layer_data = []  # List of layers which will be push to bd
+    skip_layers = []  # List of layers which will ignored from report
+
+    print("=============== SKIPPING own Recipes And CHECKING replace versions ===============")
+    for layer in bdio_data[3]:
+        skip_flag = False
+        recipe_info = get_regex_for_layer(layer['externalIdentifier']['externalId'])
+        if not recipe_info:
+            print(f"Regex not matching for {layer['externalIdentifier']['externalId']}")
+            continue
+        if recipe_skip_regex_list:
+            for skip_str in recipe_skip_regex_list:
+                if skip_str in recipe_info[1]:
+                    print(f"Recipe {recipe_info} skipped due to regex {skip_str} found in name.")
+                    skip_flag = True
+                    if recipe_info[0] not in skip_layers:
+                        skip_layers.append(recipe_info[0])
+                    break
+        if skip_flag:
+            continue
+        layer_data.append(layer)
+        # Check version in replace file
+        for org_recipe in replace_data.values():
+            # Recipe to be replaced mention in replace file
+            recipe_from_rep_tuple = get_regex_for_layer(org_recipe)
+            if not recipe_from_rep_tuple:
+                continue
+            if recipe_info[1] != recipe_from_rep_tuple[1]:
+                continue
+            # Check version
+            print(f"VERSION CHECK: Expected {recipe_info} | Actual : {recipe_from_rep_tuple}")
+            assert recipe_info[2] == recipe_from_rep_tuple[2], f"ERROR : Version incorrect. Expected {recipe_info} | Actual : {recipe_from_rep_tuple}"
+            # Check Layer
+            assert recipe_info[0] == recipe_from_rep_tuple[0], f"ERROR : Layer name data incorrect. Expected {recipe_info} | Actual : {recipe_from_rep_tuple}"
+
+    print("=============== SKIPPING own layers ===============")
+    print(f"SKIP LIST : {skip_layers}")
+    for recipe in bdio_data[2]:
+        if recipe['externalIdentifier']['externalId'] in skip_layers:
+            print(f"{recipe['externalIdentifier']['externalId']} Skipped")
+            continue
+        recipes_data.append(recipe)
+
+    bdio_data[2] = recipes_data
+    bdio_data[3] = layer_data
+
+    return bdio_data

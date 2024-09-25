@@ -1,5 +1,7 @@
-import setuptools
 import platform
+
+import setuptools
+
 from import_yocto_bm import global_values
 
 platform_system = platform.system()
@@ -9,7 +11,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="import_yocto_bm",
-    version=f"{global_values.version}",
+    version=global_values.version,
     author="Matthew Brady",
     author_email="w3matt@gmail.com",
     description="Process a built Yocto project to create a Black Duck project version",
@@ -18,6 +20,7 @@ setuptools.setup(
     url="https://github.com/blackducksoftware/import_yocto_bm",
     packages=setuptools.find_packages(),
     install_requires=['blackduck>=1.0.4',
+                      'GitPython',
                       'requests',
                       ],
     classifiers=[

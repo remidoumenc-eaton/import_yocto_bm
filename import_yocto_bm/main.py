@@ -56,6 +56,9 @@ def main():
         process.proc_yocto_project(config.args.manifest)
 
         if not global_values.offline:
+            print(f"\nDeleting version {config.args.version} from "
+                  f"project {config.args.project} if already exists before uploading the results.")
+            utils.delete_project_version(bd)
             print("\nUploading scan to Black Duck server ...")
             if utils.upload_json(bd, config.args.output_json):
                 print("Scan file uploaded successfully\nBlack Duck project '{}/{}' created.".format(
@@ -63,6 +66,12 @@ def main():
             else:
                 print("ERROR: Unable to upload scan file")
                 sys.exit(3)
+
+    if config.args.remediation_file != "":
+        try:
+            process.proc_load_remediation_rules(config.args.remediation_file)
+        except Exception as e:
+            print("ERROR: Failed to load remediation rules" + str(e))
 
     if not global_values.offline and config.args.cve_check_file != "" and not config.args.no_cve_check:
 
@@ -107,7 +116,7 @@ def main():
             print("ERROR: Unable to open CVE check output file\n" + str(e))
             sys.exit(3)
 
-        patched_vulns = []
+        remediated_vulns = {}
         pkgvuln = {}
         cves_in_bm = 0
         for line in cvelines:
@@ -123,20 +132,26 @@ def main():
                     pkgvuln['CVE'] = value
                 elif key == "CVE STATUS":
                     pkgvuln['status'] = value
-                    if pkgvuln['status'] == "Patched":
-                        patched_vulns.append(pkgvuln['CVE'])
+                    pkgvuln = process.proc_vuln(pkgvuln)
+                    if pkgvuln is not None:
+                        remediated_vulns[pkgvuln['CVE']] = pkgvuln
                         if pkgvuln['package'] in global_values.packages_list:
                             cves_in_bm += 1
                     pkgvuln = {}
 
-        print("      {} total patched CVEs identified".format(len(patched_vulns)))
+        for vuln in global_values.remediation_rules.keys():
+            if vuln not in remediated_vulns.keys():
+                remediated_vulns[vuln] = global_values.remediation_rules[vuln]
+                remediated_vulns[vuln]['CVE'] = vuln
+
+        print("      {} total patched CVEs identified".format(len(remediated_vulns)))
         if not config.args.cve_check_only:
             print(
                 '''      {} Patched CVEs within packages in build manifest (including potentially mismatched 
             CVEs which should be ignored)'''.format(
                     cves_in_bm))
-        if len(patched_vulns) > 0:
-            process.process_patched_cves(bd, ver, patched_vulns)
+        if len(remediated_vulns) > 0:
+            process.process_remediated_cves(bd, ver, remediated_vulns)
     print("Done")
 
 
